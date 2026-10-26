@@ -24,6 +24,8 @@ COMMAND_TIMEOUT = 20  # seconds; the module can take more than 5 s right after s
 SEND_TIMEOUT = 120  # seconds; Quectel gives 120 s as the maximum response time of AT+CMGS
 DONE_GRACE = 5  # seconds to wait for OK once a reply already proves success
 BATTERY_PERIOD = 60  # seconds between two battery voltage readings in the log
+OPEN_TRIES = 5  # attempts of the first AT once the port is open
+OPEN_TIMEOUT = 3  # seconds for each of them
 # First field of +CBC
 CHARGE_STATES = {'0': 'not charging', '1': 'charging', '2': 'charged'}
 FTDI_VID = 0x0403  # USB vendor of the FTDI adapter wired to the module's UART
@@ -271,7 +273,17 @@ class Modem:
 			self.ser = serial.Serial(port, 115200, timeout=0.5)
 		self.trace = trace  # log every byte written to and read from the module
 		self.new_sms = False  # set by +CMTI to scan without waiting
-		for cmd in ('AT', 'ATE0', 'AT+CMEE=2', 'AT+CMGF=1', 'AT+CSCS="GSM"', 'AT+CNMI=2,1,0,0,0'):
+		# Right after the USB interface is opened, the module often leaves the
+		# first AT unanswered: try again before giving up
+		for attempt in range(1, OPEN_TRIES + 1):
+			try:
+				self.command('AT', OPEN_TIMEOUT)
+				break
+			except ModemError:
+				if attempt == OPEN_TRIES:
+					raise
+				log('AT unanswered, trying again (%d/%d)' % (attempt, OPEN_TRIES))
+		for cmd in ('ATE0', 'AT+CMEE=2', 'AT+CMGF=1', 'AT+CSCS="GSM"', 'AT+CNMI=2,1,0,0,0'):
 			self.command(cmd)
 
 	def _write(self, data):
