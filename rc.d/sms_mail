@@ -1,0 +1,72 @@
+#!/bin/sh
+
+# PROVIDE: sms_mail
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+#
+# Envoie par mail, avec le client SMTP du module EG800Q-EU, les SMS reçus des
+# numéros autorisés. Ne tourne jamais en même temps que sms_claude
+# (dépôt EG800Q_smsResponder) : les deux liraient et effaceraient les mêmes SMS.
+# Réglages dans /etc/rc.conf (avec sysrc) :
+#   sms_mail_enable="YES"
+#   sms_mail_user="monuser"          obligatoire : utilisateur (pas root), membre du
+#                                    groupe dialer
+#   sms_mail_port="usb"              port USB du module (pyusb, règle devd/eg800q.conf),
+#                                    ou "auto" pour l'adaptateur FTDI, ou /dev/cuaU0
+#   sms_mail_args="--allow +336..."  options de sms_mail.py (--allow obligatoire, --to...)
+#   sms_mail_config="/usr/local/etc/sms_mail.conf"
+#                                    compte SMTP, à l'utilisateur, chmod 600
+#   sms_mail_dir="/usr/local/libexec/eg800q"     dossier de sms_mail.py et eg800q.py
+#   sms_mail_python="/usr/local/bin/python3"
+#   sms_mail_sms_log="/var/log/sms"  une ligne par SMS reçu (IN) ou envoyé (OUT),
+#                                    root:dialer 660 ; vide pour ne pas tracer les SMS
+#
+# daemon(8) relance le script 5 s après chaque sortie (module débranché...) et
+# envoie sa sortie dans syslog (/var/log/messages, tag sms_mail).
+
+. /etc/rc.subr
+
+name="sms_mail"
+rcvar="sms_mail_enable"
+
+load_rc_config $name
+
+: ${sms_mail_enable:="NO"}
+: ${sms_mail_user:=""}
+: ${sms_mail_port:="usb"}
+: ${sms_mail_args:=""}
+: ${sms_mail_config:="/usr/local/etc/sms_mail.conf"}
+: ${sms_mail_dir:="/usr/local/libexec/eg800q"}
+: ${sms_mail_python:="/usr/local/bin/python3"}
+: ${sms_mail_sms_log="/var/log/sms"}
+
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+# No daemon -u: rc.subr already starts daemon as ${sms_mail_user} (su -m),
+# because that variable is set, and a non-root daemon cannot switch user.
+command_args="-P ${pidfile} -r -R 5 -S -T ${name} ${sms_mail_python} ${sms_mail_dir}/sms_mail.py ${sms_mail_port} --config ${sms_mail_config} ${sms_mail_sms_log:+--sms-log ${sms_mail_sms_log}} ${sms_mail_args}"
+required_files="${sms_mail_dir}/sms_mail.py ${sms_mail_dir}/eg800q.py ${sms_mail_config}"
+start_precmd="${name}_prestart"
+
+# daemon runs as the user and writes its pidfile itself: create it for the
+# user, since only root can write in /var/run. The SMS log in /var/log is
+# created once and writable by the dialer group, which the user belongs to.
+sms_mail_prestart()
+{
+	case "${sms_mail_user}" in
+	''|root)
+		err 1 "set sms_mail_user to an unprivileged user of group dialer: sysrc sms_mail_user=..."
+		;;
+	esac
+	if service sms_claude onestatus >/dev/null 2>&1; then
+		err 1 "sms_claude is running and would take the SMS: service sms_claude stop"
+	fi
+	install -o "${sms_mail_user}" -m 644 /dev/null "${pidfile}"
+	if [ -n "${sms_mail_sms_log}" ]; then
+		[ -e "${sms_mail_sms_log}" ] || install -m 660 -g dialer /dev/null "${sms_mail_sms_log}"
+		chown root:dialer "${sms_mail_sms_log}"
+		chmod 660 "${sms_mail_sms_log}"
+	fi
+}
+
+run_rc_command "$1"

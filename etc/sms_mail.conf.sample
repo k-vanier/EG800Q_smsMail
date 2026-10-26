@@ -1,0 +1,14 @@
+# Compte SMTP de sms_mail.py, une ligne « clé = valeur ».
+# À copier dans /usr/local/etc/sms_mail.conf, puis :
+#   chown youruser /usr/local/etc/sms_mail.conf && chmod 600 /usr/local/etc/sms_mail.conf
+# Aucune valeur ne peut contenir de guillemet ".
+
+server = smtp.free.fr
+port = 587
+# none, ssl (port 465 en général) ou starttls (port 587)
+security = starttls
+user = identifiant
+password = mot-de-passe
+sender = moi@free.fr
+# Nom affiché de l'expéditeur, facultatif (par défaut : l'adresse)
+sender_name = EG800Q
